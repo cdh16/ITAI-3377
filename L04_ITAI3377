@@ -1,0 +1,284 @@
+**Conceptual Design of an IIoT Sensor Network**
+#Step 1: Set Up the Development Environment and Set Up a Virtual Environment (Command Prompt/Terminal):
+#Open a terminal or command prompt.
+#Create a new directory for the project:
+bash mkdir iiot_simulation && cd iiot_simulation
+
+**Create a virtual environment:**
+python -m venv venv
+
+**Activate the virtual environment (will be different on mac):**
+venv\Scripts\activate
+
+**Step 2: Install Required Libraries (Command Prompt/Terminal in your code editor. In this case VS Code was used)**
+# Install Required Python Packages:
+!pip install pandas
+!pip install numpy
+!pip install paho-mqtt
+!pip install aiocoap
+!pip install asyncua
+!pip install matplotlib
+
+**Set Up an MQTT Broker (Mosquitto):**
+
+**Download and install Mosquitto from the official website. Follow the installation instructions for your operating system (Windows in this case).**
+
+**Step 3: Create a Virtual IIoT Environment with Multiple Protocols**
+**Simulate Sensor Data Collection (Visual Studio Code):**
+**Create a new python file in VS COde named mqtt_sensor_simulation.py. Add the following code:**
+
+import paho.mqtt.client as mqtt
+import random
+import time
+
+# MQTT broker settings
+broker = "localhost"
+port = 1883
+topic = "sensor/data"
+
+# Function to simulate sensor data
+def simulate_sensor_data():
+    while True:
+        temperature = random.uniform(20.0, 25.0)
+        humidity = random.uniform(30.0, 50.0)
+        payload = f'{{"temperature": {temperature}, "humidity": {humidity}}}'
+        client.publish(topic, payload)
+        time.sleep(1)
+
+# Set up MQTT client and start publishing
+client = mqtt.Client()
+client.connect(broker, port)
+
+simulate_sensor_data()
+
+**Create another file named coap_sensor_simulation.py and add the following code:**
+
+import asyncio
+import random
+from aiocoap import *
+
+# Function to simulate sensor data and send it via CoAP
+async def simulate_sensor_data():
+    protocol = await Context.create_client_context()
+
+    while True:
+        temperature = random.uniform(20.0, 25.0)
+        humidity = random.uniform(30.0, 50.0)
+        payload = f'{{"temperature": {temperature}, "humidity": {humidity}}}'.encode('utf-8')
+
+        request = Message(code=POST, payload=payload)
+        request.set_request_uri('coap://localhost/sensor/data')
+
+        try:
+            response = await protocol.request(request).response
+            print('Result: %s\n%r' % (response.code, response.payload))
+        except Exception as e:
+            print('Failed to send request:', e)
+
+        await asyncio.sleep(1)
+
+# Start the async loop
+asyncio.run(simulate_sensor_data())
+
+**Create another file named opcua_sensor_simulation.py and add the following code:**
+
+from asyncua import ua, Server
+import asyncio
+import random
+
+async def main():
+    # Initialize the server
+    server = Server()
+    await server.init()
+    server.set_endpoint("opc.tcp://0.0.0.0:4840/freeopcua/server")
+
+    # Register namespace
+    uri = "http://examples.freeopcua.github.io"
+    idx = await server.register_namespace(uri)
+
+    # Create object and variables
+    objects = await server.nodes.objects
+    myobj = await objects.add_object(idx, "MyObject")
+    temperature = await myobj.add_variable(idx, "Temperature", 0.0)
+    humidity = await myobj.add_variable(idx, "Humidity", 0.0)
+
+    # Make variables writable
+    await temperature.set_writable()
+    await humidity.set_writable()
+
+    # Start server and simulate data
+    async with server:
+        while True:
+            temp_value = random.uniform(20.0, 25.0)
+            hum_value = random.uniform(30.0, 50.0)
+
+            await temperature.write_value(temp_value)
+            await humidity.write_value(hum_value)
+
+            print(f"Temperature: {temp_value}, Humidity: {hum_value}")
+            await asyncio.sleep(1)
+
+# Run the main function
+asyncio.run(main())
+
+**Run the MQTT Broker (Command Prompt/Terminal):**
+
+**Open another terminal or command prompt.**
+**Start the Mosquitto broker by running:**
+mosquitto
+
+**Run the Sensor Simulations (Command Prompt/Terminal):**
+
+**In your code editor terminal, run each sensor simulation script in separate terminals:**
+python mqtt_sensor_simulation.py
+python coap_sensor_simulation.py
+python opcua_sensor_simulation.py
+
+**Step 4: Visualize the Data**
+Subscribe to Sensor Data and Visualize (Visual Studio Code):
+
+**Create a new file in Visual Studio Code named data_visualization.py and add the following code:**
+
+import paho.mqtt.client as mqtt
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+# Store received data
+data = []
+
+# Callback for incoming MQTT messages
+def on_message(client, userdata, message):
+    payload = str(message.payload.decode("utf-8"))
+    data.append((datetime.now(), payload))
+
+    # Limit data to the most recent 100 entries
+    if len(data) > 100:
+        data.pop(0)
+
+    # Create DataFrame and extract values
+    df = pd.DataFrame(data, columns=["timestamp", "sensor_data"])
+    df["temperature"] = df["sensor_data"].apply(lambda x: eval(x)["temperature"])
+    df["humidity"] = df["sensor_data"].apply(lambda x: eval(x)["humidity"])
+
+    # Plot live data
+    plt.clf()
+    plt.plot(df["timestamp"], df["temperature"], label="Temperature")
+    plt.plot(df["timestamp"], df["humidity"], label="Humidity")
+    plt.legend()
+    plt.draw()
+    plt.pause(0.1)
+
+# Set up MQTT client
+client = mqtt.Client()
+client.connect("localhost", 1883)
+client.subscribe("sensor/data")
+client.on_message = on_message
+
+# Initialize plot
+plt.ion()
+plt.figure()
+
+# Start MQTT loop
+client.loop_start()
+plt.show()
+
+**For CoAP similar visualization scripts**
+import asyncio
+import json
+from aiocoap import *
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+# Store received data
+data = []
+
+async def fetch_data():
+    protocol = await Context.create_client_context()
+    plt.ion()
+    plt.figure()
+
+    while True:
+        request = Message(code=GET)
+        request.set_request_uri('coap://localhost/sensor/data')
+
+        try:
+            response = await protocol.request(request).response
+            payload = json.loads(response.payload.decode('utf-8'))
+            data.append((datetime.now(), payload))
+
+            # Keep only the most recent 100 readings
+            if len(data) > 100:
+                data.pop(0)
+
+            # Convert to DataFrame
+            df = pd.DataFrame(data, columns=["timestamp", "sensor_data"])
+            df["temperature"] = df["sensor_data"].apply(lambda x: x["temperature"])
+            df["humidity"] = df["sensor_data"].apply(lambda x: x["humidity"])
+
+            # Plot
+            plt.clf()
+            plt.plot(df["timestamp"], df["temperature"], label="Temperature")
+            plt.plot(df["timestamp"], df["humidity"], label="Humidity")
+            plt.legend()
+            plt.draw()
+            plt.pause(0.1)
+
+        except Exception as e:
+            print("Request failed:", e)
+
+        await asyncio.sleep(1)
+
+asyncio.run(fetch_data())
+
+**For OPC UA similar visualization script**
+
+import asyncio
+from asyncua import Client
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+# Store received data
+data = []
+
+async def fetch_data():
+    url = "opc.tcp://localhost:4840/freeopcua/server"
+    async with Client(url=url) as client:
+        # Find nodes (adjust these IDs if needed)
+        temperature_node = await client.nodes.root.get_child([
+            "0:Objects", "2:MyObject", "2:Temperature"
+        ])
+        humidity_node = await client.nodes.root.get_child([
+            "0:Objects", "2:MyObject", "2:Humidity"
+        ])
+
+        plt.ion()
+        plt.figure()
+
+        while True:
+            temp = await temperature_node.read_value()
+            hum = await humidity_node.read_value()
+            data.append((datetime.now(), temp, hum))
+
+            if len(data) > 100:
+                data.pop(0)
+
+            df = pd.DataFrame(data, columns=["timestamp", "temperature", "humidity"])
+
+            plt.clf()
+            plt.plot(df["timestamp"], df["temperature"], label="Temperature")
+            plt.plot(df["timestamp"], df["humidity"], label="Humidity")
+            plt.legend()
+            plt.draw()
+            plt.pause(0.1)
+
+            await asyncio.sleep(1)
+
+asyncio.run(fetch_data())
+
+**Run the Data Visualization (Command Prompt/Terminal):**
+
+In your code editor terminal, run the data visualization script:
+python data_visualization.py
